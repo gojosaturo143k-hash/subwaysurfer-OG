@@ -19,7 +19,7 @@ if (!window.config.unityWebglLoaderUrl) {
     window.config.unityWebglLoaderUrl = "./UnityLoader.2019.2.js"
 }
 
-// Expose minimal config and an append function so leaderboard.js can append the Unity loader only after probe installed
+// Expose minimal config and an append function so leaderboard.js can append the Unity loader if desired
 window.__master_loader_config = window.__master_loader_config || {};
 window.__master_loader_config.root = root;
 window.__master_loader_config.loaderPath = root + loader;
@@ -38,7 +38,7 @@ window.__appendUnity = window.__appendUnity || function() {
     }
 };
 
-// Load poki-sdk.js first, then load leaderboard.js. Do NOT append Unity here; leaderboard.js will call __appendUnity when it's ready.
+// Load poki-sdk.js first, then load leaderboard.js. Append Unity immediately after leaderboard.js has loaded.
 var sdkScript = document.createElement("script");
 sdkScript.src = "./poki-sdk.js";
 
@@ -53,27 +53,54 @@ sdkScript.onload = function() {
 
         lb.onload = function() {
             console.log('[master-loader] leaderboard.js loaded:', lb.src);
-            // Do NOT append Unity here; leaderboard.js will call window.__appendUnity() after the probe is installed.
+            // Immediately append the Unity loader once leaderboard.js finished loading.
+            try {
+                if (!window.__master_loader_unity_appended) {
+                    var i = document.createElement("script");
+                    i.src = root + loader;
+                    i.async = false;
+                    document.body.appendChild(i);
+                    window.__master_loader_unity_appended = true;
+                    console.log('[master-loader] Unity loader appended after leaderboard.js load:', i.src);
+                } else {
+                    console.log('[master-loader] Unity loader already appended; skipping duplicate append.');
+                }
+            } catch (e) {
+                console.error('[master-loader] failed to append Unity loader after leaderboard.js load', e);
+            }
+            // Note: leaderboard.js may continue instrumentation asynchronously; we do not wait for it.
         };
 
         lb.onerror = function(e) {
             console.error('[master-loader] Failed to load leaderboard.js from', lb.src, e);
-            // If leaderboard fails to load, we cannot rely on the probe — append Unity so game still runs.
-            // Note: per instruction we avoid starting Unity before leaderboard.js has a chance to install the probe, but if leaderboard.js 404s we must not block the game entirely.
-            var i = document.createElement("script");
-            i.src = root + loader;
-            i.async = false;
-            document.body.appendChild(i);
-            window.__master_loader_unity_appended = true;
+            // If leaderboard fails to load, append Unity so game still runs.
+            try {
+                if (!window.__master_loader_unity_appended) {
+                    var i = document.createElement("script");
+                    i.src = root + loader;
+                    i.async = false;
+                    document.body.appendChild(i);
+                    window.__master_loader_unity_appended = true;
+                    console.log('[master-loader] Unity loader appended after leaderboard.js error:', i.src);
+                }
+            } catch (e2) {
+                console.error('[master-loader] failed to append Unity loader in onerror handler', e2);
+            }
         };
 
         document.body.appendChild(lb);
     } catch (e) {
         console.error('[master-loader] Failed to inject leaderboard script:', e);
-        var i = document.createElement("script");
-        i.src = root + loader;
-        document.body.appendChild(i);
-        window.__master_loader_unity_appended = true;
+        try {
+            if (!window.__master_loader_unity_appended) {
+                var i = document.createElement("script");
+                i.src = root + loader;
+                document.body.appendChild(i);
+                window.__master_loader_unity_appended = true;
+            }
+        } catch (e2) {
+            console.error('[master-loader] fallback failed to append Unity loader', e2);
+        }
     }
 };
 
