@@ -1,64 +1,75 @@
 // leaderboard.js (probe-only)
-// Installs a lightweight probe that wraps window.PokiSDK.roundEnd to record runtime arguments.
-// This file MUST be loaded after poki-sdk.js but before Unity instantiates the game. master-loader.js was updated to inject this file.
+// Very obvious runtime logs so you can confirm execution and wrapper install
+console.log('[Leaderboard probe] FILE EXECUTED');
 
+// Mark loaded time for diagnostics
+window.__leaderboard_probe_loadedAt = Date.now();
+
+// Probe: wait until window.PokiSDK exists, then install wrapper for roundEnd.
+// Keep retrying for up to MAX_WAIT_MS so slow initialization is handled.
 (function installRoundEndProbe() {
-  const MAX_WAIT_MS = 10000; // stop trying after 10s
-  const POLL_MS = 200;
+  const MAX_WAIT_MS = 60000; // wait up to 60 seconds
+  const POLL_MS = 250;
   let waited = 0;
 
-  function wrap() {
-    if (!window.PokiSDK) return false;
-    try {
-      const original = window.PokiSDK.roundEnd && window.PokiSDK.roundEnd.bind(window.PokiSDK);
+  console.log('[Leaderboard probe] installRoundEndProbe: start');
 
-      // avoid double-wrapping
-      if (window.PokiSDK.roundEnd && window.PokiSDK.roundEnd.__roundEndProbeInstalled) return true;
+  function tryInstall() {
+    if (window.PokiSDK) {
+      console.log('[Leaderboard probe] PokiSDK detected');
+      try {
+        const origRoundEnd = window.PokiSDK.roundEnd && window.PokiSDK.roundEnd.bind(window.PokiSDK);
 
-      function wrapper(...args) {
-        try {
-          // Expose last args for debugging
-          window.__poki_roundEnd_lastArgs = args;
+        if (window.PokiSDK.roundEnd && window.PokiSDK.roundEnd.__roundEndProbeInstalled) {
+          console.log('[Leaderboard probe] wrapper already installed');
+          window.__poki_roundEnd_probe_installed = true;
+          return true;
+        }
 
-          // Keep a short recent-call log
-          window.__poki_roundEnd_calls = window.__poki_roundEnd_calls || [];
-          window.__poki_roundEnd_calls.unshift({ ts: Date.now(), args: args });
-          if (window.__poki_roundEnd_calls.length > 20) window.__poki_roundEnd_calls.length = 20;
-
-          // Console info for quick visibility
-          console.info('[Leaderboard probe] PokiSDK.roundEnd called with args:', args);
-        } catch (err) {
-          console.warn('[Leaderboard probe] error recording roundEnd args:', err);
-        } finally {
-          // Always call original to preserve behavior
+        function wrapper(...args) {
           try {
-            return typeof original === 'function' ? original(...args) : undefined;
-          } catch (e) {
-            // don't let errors here break the game
-            console.error('[Leaderboard probe] error calling original roundEnd:', e);
+            window.__poki_roundEnd_lastArgs = args;
+            window.__poki_roundEnd_calls = window.__poki_roundEnd_calls || [];
+            window.__poki_roundEnd_calls.unshift({ ts: Date.now(), args: args });
+            if (window.__poki_roundEnd_calls.length > 100) window.__poki_roundEnd_calls.length = 100;
+
+            console.info('[Leaderboard probe] PokiSDK.roundEnd called with args:', args);
+          } catch (err) {
+            console.warn('[Leaderboard probe] error while recording roundEnd args:', err);
+          }
+
+          try {
+            return typeof origRoundEnd === 'function' ? origRoundEnd(...args) : undefined;
+          } catch (err) {
+            console.error('[Leaderboard probe] error calling original roundEnd:', err);
             return undefined;
           }
         }
-      }
 
-      wrapper.__roundEndProbeInstalled = true;
-      window.PokiSDK.roundEnd = wrapper;
-      console.info('[Leaderboard probe] Installed roundEnd probe (no submission).');
-      return true;
-    } catch (e) {
-      console.error('[Leaderboard probe] failed to install probe', e);
+        wrapper.__roundEndProbeInstalled = true;
+        window.PokiSDK.roundEnd = wrapper;
+        window.__poki_roundEnd_probe_installed = true;
+        console.log('[Leaderboard probe] roundEnd WRAPPED');
+        console.info('[Leaderboard probe] Installed roundEnd probe (no submission).');
+        return true;
+      } catch (e) {
+        console.error('[Leaderboard probe] exception while installing wrapper:', e);
+        return false;
+      }
+    }
+
+    if (waited >= MAX_WAIT_MS) {
+      console.warn('[Leaderboard probe] timeout waiting for window.PokiSDK; giving up after', waited, 'ms');
       return false;
     }
+    waited += POLL_MS;
+    setTimeout(tryInstall, POLL_MS);
   }
 
-  function poll() {
-    if (wrap()) return;
-    if (waited >= MAX_WAIT_MS) {
-      console.warn('[Leaderboard probe] timeout waiting for window.PokiSDK; probe not installed.');
-      return;
-    }
-    waited += POLL_MS;
-    setTimeout(poll, POLL_MS);
-  }
-  poll();
+  window.addEventListener('pokiAppReady', function() {
+    console.log('[Leaderboard probe] got pokiAppReady event - attempting install');
+    tryInstall();
+  }, false);
+
+  tryInstall();
 })();
