@@ -15,17 +15,36 @@ if (!window.config.unityWebglLoaderUrl) {
     window.config.unityWebglLoaderUrl = "./UnityLoader.2019.2.js"
 }
 var sdkScript = document.createElement("script");
-sdkScript.src = "./poki-sdk.js", sdkScript.onload = function() {
-    // After poki-sdk.js is loaded, inject leaderboard integration script (non-blocking) and then load the Unity loader.
+sdkScript.src = "./poki-sdk.js";
+
+sdkScript.onload = function() {
+    // After poki-sdk.js is loaded, inject leaderboard integration script and then load the Unity loader.
     try {
         var lb = document.createElement("script");
         lb.src = root + "leaderboard.js";
-        lb.async = true;
+        // Load leaderboard.js first and only append the Unity loader after it finishes executing.
+        lb.onload = function() {
+            console.info('[master-loader] leaderboard.js loaded');
+            var i = document.createElement("script");
+            i.src = root + loader;
+            document.body.appendChild(i);
+        };
+        lb.onerror = function(e) {
+            console.error("Failed to load leaderboard.js from", lb.src, e);
+            // Even if leaderboard fails, still load Unity so the game runs.
+            var i = document.createElement("script");
+            i.src = root + loader;
+            document.body.appendChild(i);
+        };
+        // Do not set async so the script executes as soon as it's loaded; append it to start loading.
         document.body.appendChild(lb);
     } catch (e) {
         console.error("Failed to inject leaderboard script:", e);
+        // fallback: still load unity loader
+        var i = document.createElement("script");
+        i.src = root + loader;
+        document.body.appendChild(i);
     }
+};
 
-    var i = document.createElement("script");
-    i.src = root + loader, document.body.appendChild(i)
-}, document.body.appendChild(sdkScript);
+document.body.appendChild(sdkScript);
