@@ -17,27 +17,51 @@ if (!window.config.unityWebglLoaderUrl) {
 var sdkScript = document.createElement("script");
 sdkScript.src = "./poki-sdk.js";
 
+// Log resolved root and target URL to help confirm deployment version
+console.info('[master-loader v=773508334] computed root:', root, 'leaderboardUrl:', root + 'leaderboard.js');
+
 sdkScript.onload = function() {
     // After poki-sdk.js is loaded, inject leaderboard integration script and then load the Unity loader.
     try {
         var lb = document.createElement("script");
         lb.src = root + "leaderboard.js";
-        // Load leaderboard.js first and only append the Unity loader after it finishes executing.
+        // ensure the script executes in insertion order
+        lb.async = false;
+        lb.defer = false;
+
+        // on success, log and then append unity loader
         lb.onload = function() {
-            console.info('[master-loader] leaderboard.js loaded');
+            console.info('[master-loader v=773508334] leaderboard.js loaded and executed:', lb.src);
             var i = document.createElement("script");
             i.src = root + loader;
+            i.async = false;
             document.body.appendChild(i);
         };
+
+        // on error, log and still append unity loader so game never broken
         lb.onerror = function(e) {
-            console.error("Failed to load leaderboard.js from", lb.src, e);
-            // Even if leaderboard fails, still load Unity so the game runs.
+            console.error('[master-loader v=773508334] Failed to load leaderboard.js from', lb.src, e);
             var i = document.createElement("script");
             i.src = root + loader;
+            i.async = false;
             document.body.appendChild(i);
         };
-        // Do not set async so the script executes as soon as it's loaded; append it to start loading.
+
+        // append the leaderboard script (starts download + will execute when ready)
         document.body.appendChild(lb);
+
+        // Fallback: if onload did not fire within 12s, append unity loader to avoid blocking indefinitely
+        setTimeout(function() {
+            if (!window.__master_loader_unity_appended) {
+                console.warn('[master-loader v=773508334] fallback: appending unity loader after timeout');
+                var i = document.createElement("script");
+                i.src = root + loader;
+                i.async = false;
+                document.body.appendChild(i);
+                window.__master_loader_unity_appended = true;
+            }
+        }, 12000);
+
     } catch (e) {
         console.error("Failed to inject leaderboard script:", e);
         // fallback: still load unity loader
