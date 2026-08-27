@@ -17,43 +17,99 @@ if (!window.config.unityWebglLoaderUrl) {
 var sdkScript = document.createElement("script");
 sdkScript.src = "./poki-sdk.js";
 
-// Log resolved root and target URL to help confirm deployment version
-console.info('[master-loader v=773508334] computed root:', root, 'leaderboardUrl:', root + 'leaderboard.js');
+// DEBUG: log resolved root and leaderboard URL so we can confirm the deployed loader
+console.log('[master-loader] computed root:', root, 'leaderboardUrl:', root + 'leaderboard.js');
 
 sdkScript.onload = function() {
-    // After poki-sdk.js is loaded, inject leaderboard integration script and then load the Unity loader.
     try {
+        // Create leaderboard script element
         var lb = document.createElement("script");
         lb.src = root + "leaderboard.js";
-        // ensure the script executes in insertion order
         lb.async = false;
         lb.defer = false;
+        console.log('[master-loader] Loading leaderboard.js:', lb.src);
 
-        // on success, log and then append unity loader
+        // When leaderboard.js is loaded/ran, load score probe and then Unity loader
         lb.onload = function() {
-            console.info('[master-loader v=773508334] leaderboard.js loaded and executed:', lb.src);
-            var i = document.createElement("script");
-            i.src = root + loader;
-            i.async = false;
-            document.body.appendChild(i);
+            console.log('[master-loader] leaderboard.js loaded:', lb.src);
+
+            // load score-probe.js (separate probe that must not replace roundEnd)
+            try {
+                var sp = document.createElement('script');
+                sp.src = root + 'score-probe.js';
+                sp.async = false;
+                sp.defer = false;
+                console.log('[master-loader] Loading score-probe.js:', sp.src);
+
+                sp.onload = function() {
+                    console.log('[master-loader] score-probe.js loaded:', sp.src);
+                    // finally append Unity loader
+                    var i = document.createElement("script");
+                    i.src = root + loader;
+                    i.async = false;
+                    document.body.appendChild(i);
+                    window.__master_loader_unity_appended = true;
+                };
+
+                sp.onerror = function(e) {
+                    console.error('[master-loader] Failed to load score-probe.js from', sp.src, e);
+                    // still append unity loader
+                    var i = document.createElement("script");
+                    i.src = root + loader;
+                    i.async = false;
+                    document.body.appendChild(i);
+                    window.__master_loader_unity_appended = true;
+                };
+
+                document.body.appendChild(sp);
+
+            } catch (e) {
+                console.error('[master-loader] error injecting score-probe.js', e);
+                var i = document.createElement("script");
+                i.src = root + loader;
+                i.async = false;
+                document.body.appendChild(i);
+                window.__master_loader_unity_appended = true;
+            }
         };
 
-        // on error, log and still append unity loader so game never broken
         lb.onerror = function(e) {
-            console.error('[master-loader v=773508334] Failed to load leaderboard.js from', lb.src, e);
-            var i = document.createElement("script");
-            i.src = root + loader;
-            i.async = false;
-            document.body.appendChild(i);
+            console.error('[master-loader] Failed to load leaderboard.js from', lb.src, e);
+            // try to load the score probe anyway, then unity loader
+            try {
+                var sp2 = document.createElement('script');
+                sp2.src = root + 'score-probe.js';
+                sp2.async = false;
+                sp2.defer = false;
+                sp2.onload = function() {
+                    var i = document.createElement("script");
+                    i.src = root + loader;
+                    i.async = false;
+                    document.body.appendChild(i);
+                    window.__master_loader_unity_appended = true;
+                };
+                sp2.onerror = function() {
+                    var i = document.createElement("script");
+                    i.src = root + loader;
+                    i.async = false;
+                    document.body.appendChild(i);
+                    window.__master_loader_unity_appended = true;
+                };
+                document.body.appendChild(sp2);
+            } catch (e2) {
+                var i = document.createElement("script");
+                i.src = root + loader;
+                document.body.appendChild(i);
+                window.__master_loader_unity_appended = true;
+            }
         };
 
-        // append the leaderboard script (starts download + will execute when ready)
         document.body.appendChild(lb);
 
-        // Fallback: if onload did not fire within 12s, append unity loader to avoid blocking indefinitely
+        // Fallback: ensure unity loader appended after 12s if onload never fires
         setTimeout(function() {
             if (!window.__master_loader_unity_appended) {
-                console.warn('[master-loader v=773508334] fallback: appending unity loader after timeout');
+                console.warn('[master-loader] fallback: appending unity loader after timeout');
                 var i = document.createElement("script");
                 i.src = root + loader;
                 i.async = false;
@@ -63,8 +119,7 @@ sdkScript.onload = function() {
         }, 12000);
 
     } catch (e) {
-        console.error("Failed to inject leaderboard script:", e);
-        // fallback: still load unity loader
+        console.error('[master-loader] exception injecting leaderboard/score probes:', e);
         var i = document.createElement("script");
         i.src = root + loader;
         document.body.appendChild(i);
